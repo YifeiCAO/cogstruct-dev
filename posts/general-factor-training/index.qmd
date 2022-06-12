@@ -1,0 +1,152 @@
+---
+title: "Prepare Tasks for Cognitive Training Project"
+author: "Liang Zhang"
+date: "2022-06-08"
+draft: false
+format: 
+  html:
+    code-fold: true
+execute: 
+  warning: false
+---
+
+```{r}
+library(tidyverse)
+library(corrr)
+library(formattable)
+requireNamespace("bit64")
+```
+
+```{r}
+pivot_wider_indices <- function(data) {
+  data |>
+    add_count(user_id, game_name) |>
+    mutate(
+      game_index = if_else(
+        n == 1,
+        game_name,
+        str_c(game_name, index_name, sep = "-")
+      )
+    ) |>
+    pivot_wider(
+      id_cols = user_id,
+      names_from = game_index,
+      values_from = test
+    )
+}
+format_dt <- function(x) {
+  x |> 
+    mutate(across(c(r, abs_r, icc), ~ digits(., 2))) |> 
+    formattable(
+      list(
+        abs_r = formatter(
+          "span",
+          style = ~ style(
+            color =
+              case_when(
+                abs_r > quantile(abs_r, 0.75) ~ "red",
+                abs_r > quantile(abs_r, 0.25) ~ "blue",
+                TRUE ~ "green"
+              )
+          )
+        ),
+        icc = color_tile("transparent", "pink")
+      )
+    ) |> 
+    as.datatable(rownames = FALSE)
+}
+```
+
+```{r}
+targets::tar_load(
+  reliability_test_retest, 
+  store = here::here("preproc/_targets")
+)
+ind_filt <- readxl::read_excel(here::here("config/indices_filtering.xlsx"))
+indices_clean <- targets::tar_read(
+  indices_clean, 
+  store = here::here("preproc/_targets")
+) |>
+  inner_join(
+    filter(ind_filt, check_result %in% c("target", "target-low")) |> 
+      select(game_name, index_name, reversed) |> 
+      add_row(
+        game_name = "瑞文高级推理", 
+        index_name = "nc_test",
+        reversed = FALSE
+      ),
+    by = c("game_name", "index_name")
+  ) |> 
+  mutate(test = if_else(reversed, -test, test))
+```
+
+A basic principle choosing tasks for measuring training transfer effect is based on the correlations between the chosen tasks and the target tasks. Two types of target tasks are now selected: 
+
+* Reasoning tasks: currently only two, namely, Raven's Advanced Progressive Matrices (RAPM) and Non-verbal Reasoning Task.
+* Visuo-spatial working memory tasks.
+
+Here the correlations with these two types of tasks are calculated as follows.
+
+# Correlation with Reasoning tasks
+
+
+
+
+
+
+
+# Correlation with Visual-Spatial Working Memory Tasks
+
+```{r}
+#| label: calc-latent-score
+indices_all_task <- indices_clean |> 
+  semi_join(
+    ind_filt |> 
+      filter(
+        check_result == "target"
+      ),
+    by = c("game_name", "index_name")
+  ) |> 
+  pivot_wider_indices() %>% 
+  select(-user_id)
+```
+
+
+## General Factor
+
+```{r}
+fit <- psych::fa(indices_all_task, 1)
+task_mr <- as_tibble(unclass(fit$loadings),rownames = "Task")
+above_mr <- task_mr %>% 
+  filter(MR1 > 0.3) %>% 
+  mutate(g_contain = "true") %>% 
+  select(-MR1)
+indices_all_g <- indices_clean |> 
+  semi_join(
+    ind_filt |> 
+      filter(
+        check_result == "target"
+      ),
+    by = c("game_name", "index_name")
+  ) |> 
+  pivot_wider_indices()
+indices_g_task <- indices_all_g %>% 
+  pivot_longer(cols = c("方向临摹":"魔术师终极-dprime"),names_to = "Task",values_to = "score") %>% 
+  left_join(above_mr, by = "Task") %>% 
+  filter(g_contain == "true") %>% 
+  pivot_wider(names_from = "Task", values_from = "score") %>% 
+  select(-g_contain)
+```
+
+```{r}
+g_factors <- indices_g_task %>% 
+  select(-user_id)
+nfactors_test <- psych::nfactors(g_factors)
+```
+```{r}
+fit <- psych::fa(g_factors, 5)
+psych::fa.diagram(fit)
+```
+
+
+

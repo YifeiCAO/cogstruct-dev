@@ -422,5 +422,5 @@ list(
 ```
 
 ```{r run-pipeline, include=FALSE}
-tar_make_future(workers = 20)
+tar_make_future(workers = 100)
 ```
